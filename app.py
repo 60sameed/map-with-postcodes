@@ -21,8 +21,8 @@ OUTPUT_JSON_PATH = DATA_DIR / "uploaded_postcodes.json"
 SAVED_CSV_PATH = DATA_DIR / "uploaded_postcodes.csv"
 POSTCODES_API_URL = "https://api.postcodes.io/postcodes"
 CSV_COLUMNS = ["name", "postcode"]
-MAP_HEIGHT = 920
-VIEWPORT_OFFSET = 140
+MAP_HEIGHT = 700
+VIEWPORT_OFFSET = 120
 TABLE_HEIGHT = 520
 
 
@@ -45,6 +45,7 @@ def show_login() -> None:
     if submitted:
         if is_password_valid(password):
             st.session_state.authenticated = True
+            st.query_params["auth"] = "1"
             st.rerun()
         st.error("Incorrect password.")
     st.stop()
@@ -218,8 +219,9 @@ def build_map(dataframe: pd.DataFrame, selected_row: dict[str, Any] | None = Non
         "ScatterplotLayer",
         data=dataframe,
         get_position="[longitude, latitude]",
-        get_radius=7000,
-        get_fill_color=[200, 30, 30, 180],
+        get_radius=10,
+        get_fill_color=[200, 30, 30, 90],
+        radius_units="pixels",
         pickable=True,
     )
     text_layer = pdk.Layer(
@@ -240,10 +242,11 @@ def build_map(dataframe: pd.DataFrame, selected_row: dict[str, Any] | None = Non
             "ScatterplotLayer",
             data=selected_data,
             get_position="[longitude, latitude]",
-            get_radius=18000,
+            get_radius=22,
             get_fill_color=[255, 196, 0, 80],
             get_line_color=[255, 160, 0, 255],
             line_width_min_pixels=3,
+            radius_units="pixels",
             stroked=True,
             filled=True,
             pickable=True,
@@ -252,8 +255,9 @@ def build_map(dataframe: pd.DataFrame, selected_row: dict[str, Any] | None = Non
             "ScatterplotLayer",
             data=selected_data,
             get_position="[longitude, latitude]",
-            get_radius=9000,
-            get_fill_color=[255, 140, 0, 230],
+            get_radius=14,
+            get_fill_color=[255, 140, 0, 140],
+            radius_units="pixels",
             pickable=True,
         )
         highlight_label = pdk.Layer(
@@ -274,6 +278,151 @@ def build_map(dataframe: pd.DataFrame, selected_row: dict[str, Any] | None = Non
         layers=layers,
         tooltip={"text": "{name}\n{postcode}"},
         height=MAP_HEIGHT,
+    )
+
+
+def render_map(dataframe: pd.DataFrame, selected_row: dict[str, Any] | None = None) -> None:
+    deck = build_map(dataframe, selected_row=selected_row)
+    deck_html = deck.to_html(as_string=True, iframe_width="100%", iframe_height="100%")
+    deck_html = deck_html.replace("const deckInstance = createDeck(", "window.deckInstance = createDeck(")
+    resize_script = """
+    <script>
+    const resizeFrameToViewport = () => {
+      if (!window.frameElement) return;
+      const rect = window.frameElement.getBoundingClientRect();
+      const available = Math.max(window.parent.innerHeight - rect.top - 12, 320);
+      window.frameElement.style.height = `${available}px`;
+      const innerFrame = document.querySelector("iframe");
+      if (innerFrame) {
+        innerFrame.style.height = "100%";
+      }
+      document.documentElement.style.height = "100%";
+      document.body.style.height = "100%";
+    };
+    resizeFrameToViewport();
+    window.addEventListener("load", resizeFrameToViewport);
+    window.addEventListener("resize", resizeFrameToViewport);
+    </script>
+    """
+    fullscreen_ui = """
+    <style>
+    .map-shell {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    .map-fullscreen-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 9999;
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      background: rgba(255, 255, 255, 0.94);
+      color: #0f172a;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font: 600 13px/1 sans-serif;
+      cursor: pointer;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+    }
+    .map-fullscreen-btn:hover {
+      background: #ffffff;
+    }
+    .map-zoom-controls {
+      position: absolute;
+      top: 60px;
+      right: 12px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .map-zoom-btn {
+      width: 40px;
+      height: 40px;
+      border: 1px solid rgba(15, 23, 42, 0.12);
+      background: rgba(255, 255, 255, 0.94);
+      color: #0f172a;
+      border-radius: 10px;
+      font: 700 22px/1 sans-serif;
+      cursor: pointer;
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+    }
+    .map-zoom-btn:hover {
+      background: #ffffff;
+    }
+    </style>
+    <script>
+    const getMapHandle = () => window.deckInstance?.map || window.deckInstance?._map || null;
+    const getDeckHandle = () => window.deckInstance?.deck || window.deckInstance || null;
+    const stepZoom = (delta) => {
+      const map = getMapHandle();
+      if (map && typeof map.getZoom === "function" && typeof map.easeTo === "function") {
+        map.easeTo({ zoom: map.getZoom() + delta, duration: 250 });
+        return;
+      }
+      const deck = getDeckHandle();
+      const current = deck?.props?.initialViewState || deck?.viewState;
+      if (deck && current && typeof deck.setProps === "function") {
+        deck.setProps({
+          initialViewState: {
+            ...current,
+            zoom: (current.zoom || 0) + delta
+          }
+        });
+      }
+    };
+    const toggleFullscreen = async () => {
+      const host = window.frameElement;
+      if (!host) return;
+      if (document.fullscreenElement || window.parent.document.fullscreenElement) {
+        try {
+          await (window.parent.document.exitFullscreen?.() || document.exitFullscreen());
+        } catch (error) {
+          console.error(error);
+        }
+        return;
+      }
+      try {
+        await host.requestFullscreen();
+      } catch (error) {
+        console.error(error);
+      }
+    };
+    window.addEventListener("load", () => {
+      const button = document.createElement("button");
+      button.className = "map-fullscreen-btn";
+      button.type = "button";
+      button.textContent = "Full screen";
+      button.onclick = toggleFullscreen;
+      document.body.appendChild(button);
+
+      const controls = document.createElement("div");
+      controls.className = "map-zoom-controls";
+
+      const zoomIn = document.createElement("button");
+      zoomIn.className = "map-zoom-btn";
+      zoomIn.type = "button";
+      zoomIn.textContent = "+";
+      zoomIn.onclick = () => stepZoom(1);
+
+      const zoomOut = document.createElement("button");
+      zoomOut.className = "map-zoom-btn";
+      zoomOut.type = "button";
+      zoomOut.textContent = "−";
+      zoomOut.onclick = () => stepZoom(-1);
+
+      controls.appendChild(zoomIn);
+      controls.appendChild(zoomOut);
+      document.body.appendChild(controls);
+    });
+    </script>
+    """
+    deck_html = deck_html.replace("</body>", f"{resize_script}{fullscreen_ui}</body>")
+    components.html(
+        deck_html,
+        height=MAP_HEIGHT,
+        scrolling=False,
     )
 
 
@@ -323,6 +472,8 @@ def build_selection_table(dataframe: pd.DataFrame) -> tuple[pd.DataFrame, dict[s
 def main() -> None:
     st.set_page_config(page_title="UK Postcode Mapper", layout="wide")
     st.session_state.setdefault("authenticated", False)
+    if st.query_params.get("auth", "") == "1":
+        st.session_state.authenticated = True
     inject_styles()
 
     if not st.session_state.authenticated:
@@ -343,10 +494,7 @@ def main() -> None:
 
     if dataframe is None:
         st.info("Upload a CSV file to generate JSON output and map the postcodes.")
-        st.pydeck_chart(
-            build_map(pd.DataFrame(columns=["name", "postcode", "latitude", "longitude"])),
-            use_container_width=True,
-        )
+        render_map(pd.DataFrame(columns=["name", "postcode", "latitude", "longitude"]))
         return
 
     if not source_label:
@@ -377,10 +525,7 @@ def main() -> None:
             st.warning("Unresolved postcodes: " + ", ".join(missing_postcodes))
         st.caption("Tick a row in the table to focus and highlight that marker.")
     with left_col:
-        st.pydeck_chart(
-            build_map(enriched, selected_row=selected_row),
-            use_container_width=True,
-        )
+        render_map(enriched, selected_row=selected_row)
 
 
 if __name__ == "__main__":
