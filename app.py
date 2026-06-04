@@ -134,6 +134,7 @@ def build_marker_data(dataframe: pd.DataFrame) -> pd.DataFrame:
         .agg({"name": lambda names: list(names)})
     )
     grouped["count"] = grouped["name"].apply(len)
+    grouped["count_text"] = grouped["count"].astype(str)
     grouped["names"] = grouped["name"].apply(lambda values: "\n".join(values))
 
     return grouped
@@ -244,7 +245,7 @@ def build_map(dataframe: pd.DataFrame, selected_row: dict[str, Any] | None = Non
         "TextLayer",
         data=marker_data,
         get_position="[longitude, latitude]",
-        get_text="count",
+        get_text="count_text",
         get_size=14,
         get_color=[255, 255, 255, 255],
         get_text_anchor="'middle'",
