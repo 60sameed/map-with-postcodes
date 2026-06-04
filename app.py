@@ -124,6 +124,21 @@ def save_uploaded_csv(file_bytes: bytes) -> None:
     SAVED_CSV_PATH.write_bytes(file_bytes)
 
 
+def build_marker_data(dataframe: pd.DataFrame) -> pd.DataFrame:
+    if dataframe.empty:
+        return dataframe.copy()
+
+    grouped = (
+        dataframe
+        .groupby(["latitude", "longitude", "postcode"], as_index=False, sort=False)
+        .agg({"name": lambda names: list(names)})
+    )
+    grouped["count"] = grouped["name"].apply(len)
+    grouped["names"] = grouped["name"].apply(lambda values: "\n".join(values))
+
+    return grouped
+
+
 def load_saved_csv() -> pd.DataFrame | None:
     if not SAVED_CSV_PATH.exists():
         return None
@@ -214,25 +229,27 @@ def build_view_state(dataframe: pd.DataFrame, selected_row: dict[str, Any] | Non
 
 def build_map(dataframe: pd.DataFrame, selected_row: dict[str, Any] | None = None) -> pdk.Deck:
     view_state = build_view_state(dataframe, selected_row)
+    marker_data = build_marker_data(dataframe)
 
     marker_layer = pdk.Layer(
         "ScatterplotLayer",
-        data=dataframe,
+        data=marker_data,
         get_position="[longitude, latitude]",
-        get_radius=10,
-        get_fill_color=[200, 30, 30, 90],
+        get_radius=14,
+        get_fill_color=[200, 30, 30, 220],
         radius_units="pixels",
         pickable=True,
     )
     text_layer = pdk.Layer(
         "TextLayer",
-        data=dataframe,
+        data=marker_data,
         get_position="[longitude, latitude]",
-        get_text="name",
+        get_text="count",
         get_size=14,
-        get_color=[20, 20, 20, 255],
-        get_alignment_baseline="'top'",
-        get_pixel_offset=[0, 14],
+        get_color=[255, 255, 255, 255],
+        get_text_anchor="'middle'",
+        get_alignment_baseline="'center'",
+        get_pixel_offset=[0, 0],
     )
     layers: list[pdk.Layer] = [marker_layer, text_layer]
 
@@ -276,7 +293,7 @@ def build_map(dataframe: pd.DataFrame, selected_row: dict[str, Any] | None = Non
         map_style="light",
         initial_view_state=view_state,
         layers=layers,
-        tooltip={"text": "{name}\n{postcode}"},
+        tooltip={"text": "Count: {count}\n{names}"},
         height=MAP_HEIGHT,
     )
 
