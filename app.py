@@ -124,6 +124,10 @@ def save_uploaded_csv(file_bytes: bytes) -> None:
     SAVED_CSV_PATH.write_bytes(file_bytes)
 
 
+def split_names(value: str) -> list[str]:
+    return [part.strip() for part in str(value).split(",") if part.strip()]
+
+
 def build_marker_data(dataframe: pd.DataFrame) -> pd.DataFrame:
     if dataframe.empty:
         return dataframe.copy()
@@ -133,9 +137,13 @@ def build_marker_data(dataframe: pd.DataFrame) -> pd.DataFrame:
         .groupby(["latitude", "longitude", "postcode"], as_index=False, sort=False)
         .agg({"name": lambda names: list(names)})
     )
-    grouped["count"] = grouped["name"].apply(len)
+    grouped["split_names"] = grouped["name"].apply(
+        lambda values: [name for value in values for name in split_names(value)]
+    )
+    grouped["count"] = grouped["split_names"].apply(len)
     grouped["count_text"] = grouped["count"].astype(str)
-    grouped["names"] = grouped["name"].apply(lambda values: "\n".join(values))
+    grouped["names"] = grouped["split_names"].apply(lambda values: "\n".join(values))
+    grouped = grouped.drop(columns=["split_names"])
 
     return grouped
 
